@@ -7,7 +7,7 @@ import joblib
 import re
 from datetime import datetime
 import plotly.express as px
-from sklearn.ensemble import RandomForestClassifier, IsolationForest
+from sklearn.ensemble import RandomForestClassifier
 from sklearn.preprocessing import LabelEncoder
 from sklearn.model_selection import train_test_split, cross_val_score
 from sklearn.metrics import classification_report, accuracy_score
@@ -16,7 +16,7 @@ from sklearn.linear_model import LinearRegression
 from dga_logic import classify_fault
 
 # =====================================================
-# 🧠 DGA AI TRAINING CAMP v4.8 – Balanced Training + Auto-Fix + Cross-Validation
+# DGA AI TRAINING CAMP v4.9 – Auto-Fix + Balanced + CV + NaN-Safe Forecast
 # =====================================================
 
 TMP_DIR = tempfile.gettempdir()
@@ -36,9 +36,9 @@ if not os.path.exists(DATA_PATH):
     ])
     df_init.to_csv(DATA_PATH, index=False)
 
-st.set_page_config(page_title="DGA AI v4.8", layout="wide")
-st.title("🧠 DGA AI Training Camp v4.8 — Balanced Training + Auto-Fix + Cross-Validation")
-st.caption("Advanced AI for Dissolved Gas Analysis with automatic cleaning and validation")
+st.set_page_config(page_title="DGA AI v4.9", layout="wide")
+st.title("🧠 DGA AI Training Camp v4.9 — Balanced Training + Cross-Validation + NaN-Safe Forecast")
+st.caption("AI system for Dissolved Gas Analysis — Fault detection, learning, and predictive forecasting.")
 
 # =====================================================
 # 🧩 Utility Functions
@@ -117,7 +117,7 @@ if uploaded_files:
             if "Timestamp" in df.columns:
                 df["Timestamp"] = pd.to_datetime(df["Timestamp"], errors="coerce")
             gases = ["H2", "CH4", "C2H2", "C2H4", "C2H6", "CO", "CO2"]
-            df = df[[c for c in df.columns if c in gases or c in ["Timestamp", "Transformer"]]].dropna(subset=gases)
+            df = df[[c for c in df.columns if c in gases or c in ["Timestamp", "Transformer"]]].dropna(subset=gases, how="all")
             df["ExpertLabel"] = df.apply(lambda r: classify_fault(
                 r.get("H2", 0), r.get("CH4", 0), r.get("C2H2", 0),
                 r.get("C2H4", 0), r.get("C2H6", 0), r.get("CO", 0), r.get("CO2", 0))[0], axis=1)
@@ -178,7 +178,7 @@ if st.button("Train Model"):
         joblib.dump(encoder, ENCODER_PATH)
 
 # =====================================================
-# 📈 Forecasting Section
+# 📈 Forecasting Section (NaN-Safe Version)
 # =====================================================
 st.header("📈 Transformer Timeline + Forecast")
 
@@ -186,6 +186,7 @@ if os.path.exists(DATA_PATH):
     df_all = pd.read_csv(DATA_PATH)
     if "Timestamp" in df_all.columns:
         df_all["Timestamp"] = pd.to_datetime(df_all["Timestamp"], errors="coerce")
+        df_all = df_all.dropna(subset=["Timestamp"])
 
     transformers = sorted(df_all["Transformer"].dropna().unique())
     transformer_choice = st.selectbox("Select Transformer", transformers)
@@ -194,26 +195,37 @@ if os.path.exists(DATA_PATH):
     if len(df_t) > 3:
         gases = ["H2", "CH4", "C2H2", "C2H4", "C2H6", "CO", "CO2"]
         selected_gases = st.multiselect("Select gases", gases, default=["H2", "CH4", "CO", "CO2"])
+        df_t[selected_gases] = df_t[selected_gases].fillna(method="ffill").fillna(0)
+
         fig_gas = px.line(df_t, x="Timestamp", y=selected_gases, title=f"Gas Evolution — Transformer {transformer_choice}")
         st.plotly_chart(fig_gas, use_container_width=True)
 
         st.markdown("### 🔮 Forecast Next 90 Days")
         df_t["Days"] = (df_t["Timestamp"] - df_t["Timestamp"].min()).dt.days
+
         forecast_results = {}
         for gas in selected_gases:
-            X = df_t[["Days"]]; y = df_t[gas]
-            if len(X) > 3:
+            X = df_t[["Days"]].values
+            y = df_t[gas].values
+            if np.isnan(y).any() or np.all(y == y[0]):
+                continue
+            try:
                 model_lr = LinearRegression().fit(X, y)
                 future_day = np.array([[df_t["Days"].max() + 90]])
                 forecast_results[gas] = model_lr.predict(future_day)[0]
-        df_forecast = pd.DataFrame.from_dict(forecast_results, orient="index", columns=["Predicted ppm (in 90 days)"])
-        st.dataframe(df_forecast.round(2))
+            except Exception as e:
+                st.warning(f"⚠️ Could not forecast {gas}: {e}")
 
-        risk = df_forecast[df_forecast["Predicted ppm (in 90 days)"] > 1000]
-        if not risk.empty:
-            st.error(f"⚠️ High risk gases: {', '.join(risk.index)} increasing.")
+        if forecast_results:
+            df_forecast = pd.DataFrame.from_dict(forecast_results, orient="index", columns=["Predicted ppm (in 90 days)"])
+            st.dataframe(df_forecast.round(2))
+            risk = df_forecast[df_forecast["Predicted ppm (in 90 days)"] > 1000]
+            if not risk.empty:
+                st.error(f"⚠️ High risk gases: {', '.join(risk.index)} increasing.")
+            else:
+                st.success("✅ Stable: No significant gas increase expected.")
         else:
-            st.success("✅ Stable: No significant gas increase expected.")
+            st.info("No valid data available for forecasting.")
 
 st.markdown("---")
-st.caption("Developed by Code GPT 🧑‍💻 | DGA AI System v4.8 | Balanced + Auto-Fix + Cross-Validation 🌐")
+st.caption("Developed by Code GPT 🧠 | DGA AI v4.9 | Balanced + Auto-Fix + NaN-Safe Forecast 🌐")
