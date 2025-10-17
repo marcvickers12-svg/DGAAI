@@ -107,16 +107,29 @@ def normalize_column_names(columns):
     return normalized
 
 def average_duplicate_columns(df):
-    """Average duplicate phase columns while skipping non-numeric ones."""
+    """Smart averaging for duplicate gas columns (handles CO, CO2, etc.)."""
     averaged = pd.DataFrame()
-    for col in df.columns.unique():
-        cols = [c for c in df.columns if c == col]
+    seen = set()
+
+    for col in df.columns:
+        # Skip already processed columns
+        if col in seen:
+            continue
+
+        # Find all columns with the same normalized name
+        duplicates = [c for c in df.columns if c == col]
+        seen.update(duplicates)
+
         try:
-            numeric = df[cols].apply(pd.to_numeric, errors="coerce")
-            averaged[col] = numeric.mean(axis=1)
+            # Convert only numeric columns for averaging
+            numeric = df[duplicates].apply(pd.to_numeric, errors="coerce")
+            averaged[col] = numeric.mean(axis=1, skipna=True)
         except Exception:
-            averaged[col] = df[cols[0]]
+            # If conversion fails, keep the first as-is
+            averaged[col] = df[duplicates[0]]
+
     return averaged
+
 
 uploaded_file = st.file_uploader("📂 Choose CSV file", type=["csv"])
 
