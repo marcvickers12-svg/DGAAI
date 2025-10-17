@@ -15,7 +15,7 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import classification_report, accuracy_score, confusion_matrix
 
 # =====================================================
-# DGA AI TRAINING CAMP v4.3.2 — Stability + Confidence Edition
+# DGA AI TRAINING CAMP v4.3.3 — CO/CO₂ Stability Release
 # =====================================================
 
 TMP_DIR = tempfile.gettempdir()
@@ -28,7 +28,6 @@ DATA_PATH = os.path.join(DATA_DIR, "training_data.csv")
 MODEL_PATH = os.path.join(MODEL_DIR, "dga_model.pkl")
 ENCODER_PATH = os.path.join(MODEL_DIR, "label_encoder.pkl")
 
-# Initialize dataset if missing
 if not os.path.exists(DATA_PATH):
     df_init = pd.DataFrame(columns=[
         "Timestamp", "H2", "CH4", "C2H2", "C2H4", "C2H6", "CO", "CO2",
@@ -37,14 +36,14 @@ if not os.path.exists(DATA_PATH):
     df_init.to_csv(DATA_PATH, index=False)
 
 # --- Streamlit setup ---
-st.set_page_config(page_title="DGA AI Training Camp v4.3.2", layout="wide")
-st.title("🧠 DGA AI Training Camp v4.3.2 — Stability + Confidence Edition")
-st.caption("Fully automated Dissolved Gas Analysis AI system with multi-phase cleaning, analytics, and confidence metrics.")
+st.set_page_config(page_title="DGA AI Training Camp v4.3.3", layout="wide")
+st.title("🧠 DGA AI Training Camp v4.3.3 — CO/CO₂ Stability Release")
+st.caption("Fully stable Dissolved Gas Analysis AI System for multi-phase transformer datasets (Red/Yellow/Blue).")
 
 # ======================================
 # SECTION 1: Manual Entry
 # ======================================
-st.header("📥 Manual Entry & Rule-Based Fault Detection")
+st.header("📥 Manual Data Entry & Fault Classification")
 
 col1, col2, col3 = st.columns(3)
 with col1:
@@ -79,7 +78,7 @@ if st.button("Run Rule-Based Analysis"):
 # ======================================
 # SECTION 2: Upload + Cleaning + Visualization
 # ======================================
-st.header("📤 Upload External DGA Dataset (Multi-Phase + Analytics)")
+st.header("📤 Upload Multi-Phase DGA Dataset (UK Power Station Compatible)")
 
 def normalize_column_names(columns):
     normalized = []
@@ -100,36 +99,43 @@ def normalize_column_names(columns):
 
 
 def average_duplicate_columns(df):
-    """Final robust averaging for duplicate multi-phase gas columns (CO, CO2, etc.)."""
+    """
+    Ultra-stable averaging for duplicate multi-phase gas columns (CO, CO2, etc.)
+    Handles repeated headers BEFORE averaging (e.g., 'CO', 'CO', 'CO.1')
+    """
+    # Step 1: Rename duplicates with numbered suffixes to prevent conflicts
+    df.columns = pd.io.parsers.ParserBase({'names': df.columns})._maybe_dedup_names(df.columns)
+
     averaged = pd.DataFrame()
     processed = set()
 
-    # Normalize accidental suffixes like CO.1, CO.2
-    df.columns = [re.sub(r'\.\d+$', '', str(c)) for c in df.columns]
+    # Step 2: Normalize duplicates like CO.1 → CO
+    def base_name(name):
+        return re.sub(r'\.\d+$', '', str(name))
 
     for col in df.columns:
-        if col in processed:
+        name = base_name(col)
+        if name in processed:
             continue
 
-        # Identify duplicate gas columns
-        duplicates = [c for c in df.columns if re.sub(r'\.\d+$', '', str(c)) == col]
-        processed.update(duplicates)
+        duplicates = [c for c in df.columns if base_name(c) == name]
+        processed.add(name)
 
         try:
             temp = df[duplicates].apply(pd.to_numeric, errors="coerce")
-            averaged[col] = temp.mean(axis=1, skipna=True)
-            if averaged[col].isna().all():
-                averaged[col] = df[duplicates[0]]
+            averaged[name] = temp.mean(axis=1, skipna=True)
+            if averaged[name].isna().all():
+                averaged[name] = df[duplicates[0]]
         except Exception as e:
-            st.warning(f"⚠️ Could not process duplicates for {col}: {e}")
-            averaged[col] = df[duplicates[0]]
+            st.warning(f"⚠️ Could not process {name}: {e}")
+            averaged[name] = df[duplicates[0]]
 
     averaged = averaged.dropna(axis=1, how="all")
     averaged = averaged.loc[:, ~averaged.columns.duplicated()]
     return averaged
 
 
-uploaded_file = st.file_uploader("📂 Choose CSV file", type=["csv"])
+uploaded_file = st.file_uploader("📂 Choose a DGA CSV file", type=["csv"])
 
 if uploaded_file is not None:
     try:
@@ -156,6 +162,7 @@ if uploaded_file is not None:
             )[0], axis=1
         )
 
+        # --- Analytics ---
         st.markdown("### 📊 Data Quality Summary")
         st.write("Rows:", df_upload.shape[0])
         st.write("Missing values per column:")
@@ -172,7 +179,7 @@ if uploaded_file is not None:
         fig_fault = px.pie(df_upload, names="ExpertLabel", title="Fault Type Distribution")
         st.plotly_chart(fig_fault, use_container_width=True)
 
-        st.markdown("### 🔥 Gas Correlation Heatmap")
+        st.markdown("### 🔥 Correlation Heatmap")
         corr = df_upload[gases].corr()
         fig_heat = ff.create_annotated_heatmap(
             z=corr.values,
@@ -219,7 +226,6 @@ if st.button("Train Model"):
         joblib.dump(model, MODEL_PATH)
         joblib.dump(encoder, ENCODER_PATH)
 
-        # --- Feature importance ---
         st.markdown("### 🧩 Feature Importance")
         importances = pd.DataFrame({
             "Gas": X.columns,
@@ -231,7 +237,7 @@ if st.button("Train Model"):
 # ======================================
 # SECTION 4: AI Testing + Confidence
 # ======================================
-st.header("🔮 Test AI Model with Confidence Score")
+st.header("🔮 Test AI Model")
 
 if os.path.exists(MODEL_PATH):
     model = joblib.load(MODEL_PATH)
@@ -262,4 +268,4 @@ else:
     st.info("No trained model found. Train one first.")
 
 st.markdown("---")
-st.caption("Developed by Code GPT 🧑‍💻 | DGA AI System v4.3.2 | Stability + Confidence Edition 🌐")
+st.caption("Developed by Code GPT 🧑‍💻 | DGA AI System v4.3.3 | CO/CO₂ Stability Release 🌐")
