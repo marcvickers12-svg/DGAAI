@@ -6,17 +6,16 @@ import os
 import tempfile
 import joblib
 import re
-import plotly.express as px
-import plotly.figure_factory as ff
 import numpy as np
-from sklearn.model_selection import train_test_split
+import plotly.express as px
+from sklearn.ensemble import RandomForestClassifier, IsolationForest
 from sklearn.preprocessing import LabelEncoder
-from sklearn.ensemble import RandomForestClassifier
+from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report, accuracy_score
 from sklearn.linear_model import LinearRegression
 
 # =====================================================
-# DGA AI TRAINING CAMP v4.6 — Predictive Health Forecasting Edition
+# 🧠 DGA AI TRAINING CAMP v4.7 — Dataset Manager + Anomaly Detection
 # =====================================================
 
 TMP_DIR = tempfile.gettempdir()
@@ -36,15 +35,13 @@ if not os.path.exists(DATA_PATH):
     ])
     df_init.to_csv(DATA_PATH, index=False)
 
-st.set_page_config(page_title="DGA AI Training Camp v4.6", layout="wide")
-st.title("🧠 DGA AI Training Camp v4.6 — Predictive Health Forecasting Edition")
-st.caption("AI-enhanced Dissolved Gas Analysis: Forecast transformer gas evolution and fault probabilities 30–90 days ahead.")
+st.set_page_config(page_title="DGA AI v4.7", layout="wide")
+st.title("🧠 DGA AI Training Camp v4.7 — Dataset Manager + Anomaly Detection")
+st.caption("Manage datasets, train AI, visualize timelines, and forecast transformer health.")
 
 # =====================================================
-# 📤 Upload Section
+# ⚙️ Utility Functions
 # =====================================================
-st.header("📤 Bulk Upload DGA Datasets (Auto-Heal Mode)")
-
 def normalize_column_names(columns):
     normalized = []
     for c in columns:
@@ -75,7 +72,8 @@ def average_duplicate_columns(df):
             seen[c] += 1
             new_cols.append(f"{c}.{seen[c]}")
     df.columns = new_cols
-    averaged, processed = pd.DataFrame(), set()
+    averaged = pd.DataFrame()
+    processed = set()
 
     def base_name(name): return re.sub(r'\.\d+$', '', str(name))
     for col in df.columns:
@@ -89,6 +87,45 @@ def average_duplicate_columns(df):
     averaged = averaged.loc[:, ~averaged.columns.duplicated()]
     return averaged
 
+# =====================================================
+# 🗃️ Dataset Manager
+# =====================================================
+st.header("🗃️ Dataset Manager")
+
+if os.path.exists(DATA_PATH):
+    df_data = pd.read_csv(DATA_PATH)
+    total_rows = len(df_data)
+    transformers = df_data["Transformer"].nunique() if "Transformer" in df_data.columns else 0
+    faults = df_data["ExpertLabel"].nunique() if "ExpertLabel" in df_data.columns else 0
+
+    col1, col2, col3 = st.columns(3)
+    col1.metric("📊 Total Records", total_rows)
+    col2.metric("⚙️ Transformers", transformers)
+    col3.metric("💥 Fault Classes", faults)
+
+    if "ExpertLabel" in df_data.columns:
+        st.markdown("### Fault Type Distribution")
+        fault_counts = df_data["ExpertLabel"].value_counts()
+        st.bar_chart(fault_counts)
+
+    with st.expander("⚠️ Advanced Dataset Tools"):
+        colA, colB = st.columns(2)
+        with colA:
+            if st.button("🧹 Delete All Data (Reset)"):
+                df_init = pd.DataFrame(columns=df_data.columns)
+                df_init.to_csv(DATA_PATH, index=False)
+                st.success("✅ Dataset reset successfully.")
+        with colB:
+            st.download_button("⬇️ Export Current Dataset", data=df_data.to_csv(index=False),
+                               file_name="training_data_export.csv", mime="text/csv")
+
+else:
+    st.info("No dataset found yet. Upload CSVs below to create one.")
+
+# =====================================================
+# 📤 Bulk Upload Section
+# =====================================================
+st.header("📤 Upload New Datasets")
 
 uploaded_files = st.file_uploader("📂 Upload one or more CSV files", type=["csv"], accept_multiple_files=True)
 if uploaded_files:
@@ -123,28 +160,41 @@ if uploaded_files:
         st.dataframe(merged.head(10))
 
 # =====================================================
-# 🤖 Train AI Model (Data-Aware)
+# 🚨 Anomaly Detection (Outlier Scan)
 # =====================================================
-st.header("🤖 Train AI Model — Data-Aware Mode")
+st.header("🚨 Anomaly Detection Scan")
+
+if os.path.exists(DATA_PATH):
+    df_scan = pd.read_csv(DATA_PATH)
+    if len(df_scan) > 100:
+        gases = ["H2", "CH4", "C2H2", "C2H4", "C2H6", "CO", "CO2"]
+        st.write("Running Isolation Forest anomaly scan...")
+        model_if = IsolationForest(contamination=0.02, random_state=42)
+        df_scan["AnomalyScore"] = model_if.fit_predict(df_scan[gases].fillna(0))
+        anomalies = df_scan[df_scan["AnomalyScore"] == -1]
+        st.warning(f"⚠️ {len(anomalies)} potential anomalies detected.")
+        st.dataframe(anomalies.head(10))
+        st.download_button("⬇️ Export Anomaly Report", data=anomalies.to_csv(index=False),
+                           file_name="anomaly_report.csv", mime="text/csv")
+
+# =====================================================
+# 🤖 Train Model
+# =====================================================
+st.header("🤖 Train AI Model")
 
 if st.button("Train Model"):
     df = pd.read_csv(DATA_PATH)
     if len(df) < 100:
-        st.warning("⚠️ Not enough data to train (minimum 500 recommended).")
+        st.warning("⚠️ Not enough data to train.")
     elif "ExpertLabel" not in df.columns:
         st.error("❌ Missing ExpertLabel column.")
     else:
-        fault_counts = df["ExpertLabel"].value_counts()
-        st.bar_chart(fault_counts)
-        if fault_counts.min() < 10:
-            st.warning("⚠️ Some fault types have fewer than 10 samples — may reduce accuracy.")
-
         gases = ["H2", "CH4", "C2H2", "C2H4", "C2H6", "CO", "CO2"]
         X, y = df[gases], df["ExpertLabel"]
         encoder = LabelEncoder()
         y_encoded = encoder.fit_transform(y)
         X_train, X_test, y_train, y_test = train_test_split(X, y_encoded, test_size=0.2, random_state=42, stratify=y_encoded)
-        model = RandomForestClassifier(n_estimators=300, random_state=42, class_weight="balanced_subsample")
+        model = RandomForestClassifier(n_estimators=200, random_state=42, class_weight="balanced_subsample")
         model.fit(X_train, y_train)
         y_pred = model.predict(X_test)
         acc = accuracy_score(y_test, y_pred)
@@ -154,9 +204,9 @@ if st.button("Train Model"):
         joblib.dump(encoder, ENCODER_PATH)
 
 # =====================================================
-# 🔮 Prediction + Timeline + Forecast
+# 📈 Timeline + Forecast
 # =====================================================
-st.header("📈 Timeline Intelligence + Predictive Forecasting")
+st.header("📈 Timeline Intelligence + Forecasting")
 
 if os.path.exists(DATA_PATH):
     df_all = pd.read_csv(DATA_PATH)
@@ -167,44 +217,31 @@ if os.path.exists(DATA_PATH):
     transformer_choice = st.selectbox("Select Transformer", transformers)
     df_t = df_all[df_all["Transformer"] == transformer_choice].sort_values("Timestamp")
 
-    if len(df_t) > 1:
+    if len(df_t) > 3:
         gases = ["H2", "CH4", "C2H2", "C2H4", "C2H6", "CO", "CO2"]
-        selected_gases = st.multiselect("Select gases to plot", gases, default=["H2", "CH4", "CO", "CO2"])
-        fig_gas = px.line(df_t, x="Timestamp", y=selected_gases, title=f"Gas Concentrations — Transformer {transformer_choice}", markers=True)
+        selected_gases = st.multiselect("Select gases", gases, default=["H2", "CH4", "CO", "CO2"])
+        fig_gas = px.line(df_t, x="Timestamp", y=selected_gases, title=f"Gas Evolution — Transformer {transformer_choice}")
         st.plotly_chart(fig_gas, use_container_width=True)
 
-        if "ExpertLabel" in df_t.columns:
-            fig_fault = px.scatter(df_t, x="Timestamp", y="ExpertLabel", color="ExpertLabel",
-                                   title=f"Fault Timeline — Transformer {transformer_choice}")
-            st.plotly_chart(fig_fault, use_container_width=True)
-
-        # --- Predictive Forecast ---
-        st.markdown("### 🔮 Predictive Health Forecast (Next 90 Days)")
-        forecast_horizon = st.slider("Forecast Days", 30, 180, 90, 30)
-        df_t = df_t.dropna(subset=selected_gases)
+        # Predictive Forecast
+        st.markdown("### 🔮 Forecast Next 90 Days")
         df_t["Days"] = (df_t["Timestamp"] - df_t["Timestamp"].min()).dt.days
-
         forecast_results = {}
         for gas in selected_gases:
-            X = df_t[["Days"]]
-            y = df_t[gas]
-            model_lr = LinearRegression().fit(X, y)
-            future_days = np.arange(df_t["Days"].max(), df_t["Days"].max() + forecast_horizon)
-            future_pred = model_lr.predict(future_days.reshape(-1, 1))
-            forecast_results[gas] = future_pred[-1]  # predicted end value
-
+            X = df_t[["Days"]]; y = df_t[gas]
+            if len(X) > 3:
+                model_lr = LinearRegression().fit(X, y)
+                future_day = np.array([[df_t["Days"].max() + 90]])
+                forecast_results[gas] = model_lr.predict(future_day)[0]
         df_forecast = pd.DataFrame.from_dict(forecast_results, orient="index", columns=["Predicted ppm (in 90 days)"])
         st.dataframe(df_forecast.round(2))
 
-        # Risk assessment
-        risk_gases = df_forecast[df_forecast["Predicted ppm (in 90 days)"] > 1000].index.tolist()
-        if risk_gases:
-            st.error(f"⚠️ Predicted high risk in gases: {', '.join(risk_gases)} — likely progressive fault trend.")
+        # Risk flag
+        risk = df_forecast[df_forecast["Predicted ppm (in 90 days)"] > 1000]
+        if not risk.empty:
+            st.error(f"⚠️ High risk: {', '.join(risk.index)} gases trending upward.")
         else:
-            st.success("✅ Forecast indicates stable condition — no major rise expected.")
-
-else:
-    st.error("❌ Upload and train before viewing timeline forecasting.")
+            st.success("✅ Forecast stable. No major rises expected.")
 
 st.markdown("---")
-st.caption("Developed by Code GPT 🧑‍💻 | DGA AI System v4.6 | Predictive Health Forecasting Edition 🌐")
+st.caption("Developed by Code GPT 🧑‍💻 | DGA AI v4.7 | Dataset Manager + Anomaly Detection 🌐")
