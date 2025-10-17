@@ -103,18 +103,36 @@ def average_duplicate_columns(df):
     averaged = pd.DataFrame()
     seen = set()
 
+    def average_duplicate_columns(df):
+    """Advanced averaging for multi-phase gas columns (handles CO, CO2, etc.)"""
+    averaged = pd.DataFrame()
+    processed = set()
+
     for col in df.columns:
-        if col in seen:
+        if col in processed:
             continue
+
+        # Find duplicates (e.g., multiple CO columns)
         duplicates = [c for c in df.columns if c == col]
-        seen.update(duplicates)
+        processed.update(duplicates)
 
         try:
-            numeric = df[duplicates].apply(pd.to_numeric, errors="coerce")
-            averaged[col] = numeric.mean(axis=1, skipna=True)
-        except Exception:
+            # Convert all to numeric, force errors to NaN
+            temp = df[duplicates].apply(pd.to_numeric, errors="coerce")
+            averaged[col] = temp.mean(axis=1, skipna=True)
+
+            # If everything is NaN, fallback to original data
+            if averaged[col].isna().all():
+                averaged[col] = df[duplicates[0]]
+
+        except Exception as e:
+            st.warning(f"⚠️ Could not average column {col}: {e}")
             averaged[col] = df[duplicates[0]]
+
+    # Drop completely empty columns
+    averaged = averaged.dropna(axis=1, how="all")
     return averaged
+
 
 uploaded_file = st.file_uploader("📂 Choose a DGA dataset (.csv)", type=["csv"])
 
