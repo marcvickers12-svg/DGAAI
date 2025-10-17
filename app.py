@@ -12,10 +12,10 @@ import numpy as np
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelEncoder
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.metrics import classification_report, accuracy_score, confusion_matrix
+from sklearn.metrics import classification_report, accuracy_score
 
 # =====================================================
-# DGA AI TRAINING CAMP v4.3.3 — CO/CO₂ Stability Release
+# DGA AI TRAINING CAMP v4.3.4 — Auto-Heal Edition
 # =====================================================
 
 TMP_DIR = tempfile.gettempdir()
@@ -28,6 +28,7 @@ DATA_PATH = os.path.join(DATA_DIR, "training_data.csv")
 MODEL_PATH = os.path.join(MODEL_DIR, "dga_model.pkl")
 ENCODER_PATH = os.path.join(MODEL_DIR, "label_encoder.pkl")
 
+# --- Initialize dataset if missing ---
 if not os.path.exists(DATA_PATH):
     df_init = pd.DataFrame(columns=[
         "Timestamp", "H2", "CH4", "C2H2", "C2H4", "C2H6", "CO", "CO2",
@@ -36,14 +37,14 @@ if not os.path.exists(DATA_PATH):
     df_init.to_csv(DATA_PATH, index=False)
 
 # --- Streamlit setup ---
-st.set_page_config(page_title="DGA AI Training Camp v4.3.3", layout="wide")
-st.title("🧠 DGA AI Training Camp v4.3.3 — CO/CO₂ Stability Release")
-st.caption("Fully stable Dissolved Gas Analysis AI System for multi-phase transformer datasets (Red/Yellow/Blue).")
+st.set_page_config(page_title="DGA AI Training Camp v4.3.4", layout="wide")
+st.title("🧠 DGA AI Training Camp v4.3.4 — Auto-Heal Edition")
+st.caption("Self-healing Dissolved Gas Analysis AI: Auto-detects, cleans, and normalizes all DGA column types automatically.")
 
-# ======================================
-# SECTION 1: Manual Entry
-# ======================================
-st.header("📥 Manual Data Entry & Fault Classification")
+# =====================================================
+# 📥 Manual Entry
+# =====================================================
+st.header("📥 Manual Data Entry & Rule-Based Classification")
 
 col1, col2, col3 = st.columns(3)
 with col1:
@@ -75,41 +76,58 @@ if st.button("Run Rule-Based Analysis"):
         df.to_csv(DATA_PATH, index=False)
         st.success(f"✅ Entry saved for AI training! ({timestamp})")
 
-# ======================================
-# SECTION 2: Upload + Cleaning + Visualization
-# ======================================
-st.header("📤 Upload Multi-Phase DGA Dataset (UK Power Station Compatible)")
+# =====================================================
+# 📤 Upload + Auto-Heal + Visualization
+# =====================================================
+st.header("📤 Upload DGA Dataset (Auto-Heal Mode)")
 
 def normalize_column_names(columns):
+    """
+    Auto-heal column names for multi-phase datasets and unit variations.
+    """
     normalized = []
     for c in columns:
         c_lower = c.lower().strip()
-        c_lower = re.sub(r'^(red|yellow|blue)[:\\s-]+', '', c_lower)
-        c_lower = c_lower.replace('(ppm)', '').strip()
+
+        # Remove units, prefixes, and special characters
+        c_lower = re.sub(r'\[.*?\]|\(.*?\)|ppm|parts per million', '', c_lower)
+        c_lower = re.sub(r'^(red|yellow|blue)[:\s-]+', '', c_lower)
+        c_lower = re.sub(r'[\s:;_-]+', ' ', c_lower).strip()
+
+        # Standardize key gases
         if re.search(r'h.?ydrogen', c_lower): normalized.append('H2')
         elif re.search(r'meth.?ane', c_lower): normalized.append('CH4')
         elif re.search(r'acetyl', c_lower): normalized.append('C2H2')
         elif re.search(r'ethyl.?ene', c_lower): normalized.append('C2H4')
         elif re.search(r'ethane', c_lower): normalized.append('C2H6')
-        elif re.search(r'co2', c_lower): normalized.append('CO2')
-        elif re.match(r'co(?!2)', c_lower): normalized.append('CO')
+        elif re.search(r'carbon.?monoxide|co(?!2)', c_lower): normalized.append('CO')
+        elif re.search(r'carbon.?dioxide|co2', c_lower): normalized.append('CO2')
         elif re.search(r'date|time', c_lower): normalized.append('Timestamp')
-        else: normalized.append(c.strip())
+        else:
+            normalized.append(c.strip())
     return normalized
 
 
 def average_duplicate_columns(df):
     """
-    Ultra-stable averaging for duplicate multi-phase gas columns (CO, CO2, etc.)
-    Handles repeated headers BEFORE averaging (e.g., 'CO', 'CO', 'CO.1')
+    Fully stable averaging for duplicate multi-phase gas columns.
+    Handles modern Pandas and inconsistent data automatically.
     """
-    # Step 1: Rename duplicates with numbered suffixes to prevent conflicts
-    df.columns = pd.io.parsers.ParserBase({'names': df.columns})._maybe_dedup_names(df.columns)
+    # Rename duplicate columns safely (no ParserBase)
+    seen = {}
+    new_cols = []
+    for c in df.columns:
+        if c not in seen:
+            seen[c] = 0
+            new_cols.append(c)
+        else:
+            seen[c] += 1
+            new_cols.append(f"{c}.{seen[c]}")
+    df.columns = new_cols
 
     averaged = pd.DataFrame()
     processed = set()
 
-    # Step 2: Normalize duplicates like CO.1 → CO
     def base_name(name):
         return re.sub(r'\.\d+$', '', str(name))
 
@@ -135,7 +153,7 @@ def average_duplicate_columns(df):
     return averaged
 
 
-uploaded_file = st.file_uploader("📂 Choose a DGA CSV file", type=["csv"])
+uploaded_file = st.file_uploader("📂 Choose DGA dataset (.csv)", type=["csv"])
 
 if uploaded_file is not None:
     try:
@@ -153,6 +171,7 @@ if uploaded_file is not None:
         gases = ["H2", "CH4", "C2H2", "C2H4", "C2H6", "CO", "CO2"]
         df_upload = df_upload[[col for col in df_upload.columns if col in gases or col == "Timestamp"]].dropna(subset=gases)
 
+        # Rule-based classification
         st.write("🔍 Applying rule-based fault classification...")
         df_upload["ExpertLabel"] = df_upload.apply(
             lambda row: classify_fault(
@@ -162,17 +181,15 @@ if uploaded_file is not None:
             )[0], axis=1
         )
 
-        # --- Analytics ---
+        # Summary and analytics
         st.markdown("### 📊 Data Quality Summary")
-        st.write("Rows:", df_upload.shape[0])
-        st.write("Missing values per column:")
-        st.write(df_upload.isna().sum())
+        st.write(df_upload.describe())
 
         if "Timestamp" in df_upload.columns:
             st.markdown("### 📈 Gas Trend Over Time")
-            gas_choice = st.multiselect("Select gases to visualize", gases, default=["H2", "CH4"])
+            gas_choice = st.multiselect("Select gases", gases, default=["H2", "CH4"])
             for gas in gas_choice:
-                fig = px.line(df_upload, x="Timestamp", y=gas, title=f"{gas} Concentration Over Time", markers=True)
+                fig = px.line(df_upload, x="Timestamp", y=gas, title=f"{gas} Trend", markers=True)
                 st.plotly_chart(fig, use_container_width=True)
 
         st.markdown("### 🥧 Fault Distribution")
@@ -182,11 +199,8 @@ if uploaded_file is not None:
         st.markdown("### 🔥 Correlation Heatmap")
         corr = df_upload[gases].corr()
         fig_heat = ff.create_annotated_heatmap(
-            z=corr.values,
-            x=list(corr.columns),
-            y=list(corr.index),
-            colorscale="Viridis",
-            showscale=True
+            z=corr.values, x=corr.columns, y=corr.index,
+            colorscale="Viridis", showscale=True
         )
         st.plotly_chart(fig_heat, use_container_width=True)
 
@@ -199,10 +213,10 @@ if uploaded_file is not None:
     except Exception as e:
         st.error(f"❌ Error processing file: {e}")
 
-# ======================================
-# SECTION 3: Train AI Model + Confidence
-# ======================================
-st.header("🤖 Train AI Model & View Confidence")
+# =====================================================
+# 🤖 Train AI Model
+# =====================================================
+st.header("🤖 Train AI Model")
 
 if st.button("Train Model"):
     df = pd.read_csv(DATA_PATH)
@@ -231,12 +245,12 @@ if st.button("Train Model"):
             "Gas": X.columns,
             "Importance": model.feature_importances_
         }).sort_values(by="Importance", ascending=False)
-        fig_imp = px.bar(importances, x="Gas", y="Importance", title="Gas Contribution to AI Decisions", text_auto=True)
+        fig_imp = px.bar(importances, x="Gas", y="Importance", title="Gas Influence on AI Fault Predictions", text_auto=True)
         st.plotly_chart(fig_imp, use_container_width=True)
 
-# ======================================
-# SECTION 4: AI Testing + Confidence
-# ======================================
+# =====================================================
+# 🔮 AI Prediction
+# =====================================================
 st.header("🔮 Test AI Model")
 
 if os.path.exists(MODEL_PATH):
@@ -268,4 +282,4 @@ else:
     st.info("No trained model found. Train one first.")
 
 st.markdown("---")
-st.caption("Developed by Code GPT 🧑‍💻 | DGA AI System v4.3.3 | CO/CO₂ Stability Release 🌐")
+st.caption("Developed by Code GPT 🧑‍💻 | DGA AI System v4.3.4 | Auto-Heal Edition 🌐")
