@@ -7,13 +7,15 @@ import tempfile
 import joblib
 import re
 import plotly.express as px
+import plotly.figure_factory as ff
+import numpy as np
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelEncoder
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import classification_report, accuracy_score, confusion_matrix
 
 # =====================================================
-# DGA AI TRAINING CAMP v4.2 — Multi-Phase + Time Series
+# DGA AI TRAINING CAMP v4.3 — Analytics Edition
 # =====================================================
 
 TMP_DIR = tempfile.gettempdir()
@@ -26,7 +28,7 @@ DATA_PATH = os.path.join(DATA_DIR, "training_data.csv")
 MODEL_PATH = os.path.join(MODEL_DIR, "dga_model.pkl")
 ENCODER_PATH = os.path.join(MODEL_DIR, "label_encoder.pkl")
 
-# --- Initialize empty dataset if not found
+# Initialize dataset if missing
 if not os.path.exists(DATA_PATH):
     df_init = pd.DataFrame(columns=[
         "Timestamp", "H2", "CH4", "C2H2", "C2H4", "C2H6", "CO", "CO2",
@@ -34,13 +36,13 @@ if not os.path.exists(DATA_PATH):
     ])
     df_init.to_csv(DATA_PATH, index=False)
 
-# --- Streamlit config
-st.set_page_config(page_title="DGA AI Training Camp v4.2", layout="wide")
-st.title("🧠 DGA AI Training Camp v4.2 — Multi-Phase + Time-Series Visualization")
-st.caption("Fully automated DGA analysis system with rule-based classification, AI training, and real-time charts.")
+# --- Streamlit setup ---
+st.set_page_config(page_title="DGA AI Training Camp v4.3", layout="wide")
+st.title("🧠 DGA AI Training Camp v4.3 — Analytics Edition")
+st.caption("Advanced Dissolved Gas Analysis system with full AI training, visual analytics, and fault classification.")
 
 # ======================================
-# SECTION 1: Manual Data Entry
+# SECTION 1: Data Entry
 # ======================================
 st.header("📥 Manual Data Entry & Rule-Based Classification")
 
@@ -75,20 +77,9 @@ if st.button("Run Rule-Based Analysis"):
         st.success(f"✅ Entry saved for AI training! ({timestamp})")
 
 # ======================================
-# SECTION 2: Upload + Cleaning + Visualization
+# SECTION 2: Smart Upload + Cleaning + Visualization
 # ======================================
-st.header("📤 Upload External DGA Dataset (Multi-Phase + Visualization)")
-
-st.markdown("""
-Upload any raw `.csv` file — even with **Red/Yellow/Blue phases** or timestamps.  
-The app will:
-- Detect and rename gas columns  
-- Average multi-phase duplicates  
-- Ignore non-numeric (e.g., date) columns  
-- Classify faults automatically  
-- Generate data-quality stats  
-- Plot time-series visualizations  
-""")
+st.header("📤 Upload DGA Dataset (Multi-Phase + Visualization + Analytics)")
 
 def normalize_column_names(columns):
     normalized = []
@@ -103,6 +94,7 @@ def normalize_column_names(columns):
         elif re.search(r'ethane', c_lower): normalized.append('C2H6')
         elif re.search(r'co2', c_lower): normalized.append('CO2')
         elif re.match(r'co(?!2)', c_lower): normalized.append('CO')
+        elif re.search(r'date|time', c_lower): normalized.append('Timestamp')
         else: normalized.append(c.strip())
     return normalized
 
@@ -112,26 +104,19 @@ def average_duplicate_columns(df):
     seen = set()
 
     for col in df.columns:
-        # Skip already processed columns
         if col in seen:
             continue
-
-        # Find all columns with the same normalized name
         duplicates = [c for c in df.columns if c == col]
         seen.update(duplicates)
 
         try:
-            # Convert only numeric columns for averaging
             numeric = df[duplicates].apply(pd.to_numeric, errors="coerce")
             averaged[col] = numeric.mean(axis=1, skipna=True)
         except Exception:
-            # If conversion fails, keep the first as-is
             averaged[col] = df[duplicates[0]]
-
     return averaged
 
-
-uploaded_file = st.file_uploader("📂 Choose CSV file", type=["csv"])
+uploaded_file = st.file_uploader("📂 Choose a DGA dataset (.csv)", type=["csv"])
 
 if uploaded_file is not None:
     try:
@@ -142,15 +127,14 @@ if uploaded_file is not None:
         st.success(f"✅ File uploaded successfully! {df_upload.shape[0]} rows detected.")
         st.dataframe(df_upload.head())
 
-        # Detect timestamp or date columns
-        date_cols = [col for col in df_upload.columns if re.search(r'date|time', col.lower())]
-        if date_cols:
-            df_upload[date_cols[0]] = pd.to_datetime(df_upload[date_cols[0]], errors="coerce")
-            df_upload = df_upload.rename(columns={date_cols[0]: "Timestamp"})
+        # Identify timestamp
+        if "Timestamp" in df_upload.columns:
+            df_upload["Timestamp"] = pd.to_datetime(df_upload["Timestamp"], errors="coerce")
 
         gases = ["H2", "CH4", "C2H2", "C2H4", "C2H6", "CO", "CO2"]
         df_upload = df_upload[[col for col in df_upload.columns if col in gases or col == "Timestamp"]].dropna(subset=gases)
 
+        # Rule-based classification
         st.write("🔍 Applying rule-based fault classification...")
         df_upload["ExpertLabel"] = df_upload.apply(
             lambda row: classify_fault(
@@ -160,7 +144,7 @@ if uploaded_file is not None:
             )[0], axis=1
         )
 
-        # --- Data summary ---
+        # --- Summary ---
         st.markdown("### 📊 Data Quality Summary")
         st.write("Rows:", df_upload.shape[0])
         st.write("Missing values per column:")
@@ -168,19 +152,31 @@ if uploaded_file is not None:
         st.write("Summary statistics:")
         st.write(df_upload.describe())
 
-        # --- Visualization section ---
+        # --- Visualization ---
+        st.markdown("### 📈 Time-Series Visualization")
         if "Timestamp" in df_upload.columns:
-            st.markdown("### 📈 Time-Series Gas Trends")
             gas_choice = st.multiselect("Select gases to visualize", gases, default=["H2", "CH4"])
             for gas in gas_choice:
                 fig = px.line(df_upload, x="Timestamp", y=gas, title=f"{gas} Concentration Over Time", markers=True)
                 st.plotly_chart(fig, use_container_width=True)
 
-            st.markdown("### 🔥 Fault Type Distribution")
-            fig_faults = px.histogram(df_upload, x="ExpertLabel", title="Fault Occurrence Frequency")
-            st.plotly_chart(fig_faults, use_container_width=True)
+        st.markdown("### 🥧 Fault Distribution")
+        fig_fault = px.pie(df_upload, names="ExpertLabel", title="Fault Type Distribution")
+        st.plotly_chart(fig_fault, use_container_width=True)
 
-        # --- Merge to main dataset ---
+        # --- Correlation Heatmap ---
+        st.markdown("### 🔥 Gas Correlation Heatmap")
+        corr = df_upload[gases].corr()
+        fig_heat = ff.create_annotated_heatmap(
+            z=corr.values,
+            x=list(corr.columns),
+            y=list(corr.index),
+            colorscale="Viridis",
+            showscale=True
+        )
+        st.plotly_chart(fig_heat, use_container_width=True)
+
+        # --- Merge Dataset ---
         if st.button("🔄 Merge with Training Data"):
             df_existing = pd.read_csv(DATA_PATH)
             df_upload["RuleBasedFault"] = df_upload["ExpertLabel"]
@@ -191,7 +187,7 @@ if uploaded_file is not None:
         st.error(f"❌ Error processing file: {e}")
 
 # ======================================
-# SECTION 3: AI Model Training
+# SECTION 3: Train AI Model
 # ======================================
 st.header("🤖 Train AI Model")
 
@@ -211,10 +207,8 @@ if st.button("Train Model"):
         y_pred = model.predict(X_test)
 
         acc = accuracy_score(y_test, y_pred)
-        st.success(f"✅ Model trained! Accuracy: {acc*100:.2f}%")
-        st.text("Classification Report:")
+        st.success(f"✅ Model trained successfully! Accuracy: {acc*100:.2f}%")
         st.code(classification_report(y_test, y_pred))
-        st.text("Confusion Matrix:")
         st.dataframe(pd.DataFrame(confusion_matrix(y_test, y_pred)))
 
         joblib.dump(model, MODEL_PATH)
@@ -222,7 +216,7 @@ if st.button("Train Model"):
         st.info("💾 Model saved successfully!")
 
 # ======================================
-# SECTION 4: AI Prediction
+# SECTION 4: Test Model
 # ======================================
 st.header("🔮 Test AI Model")
 
@@ -232,15 +226,15 @@ if os.path.exists(MODEL_PATH):
 
     col1, col2, col3 = st.columns(3)
     with col1:
-        test_h2 = st.number_input("H₂ (ppm) test", min_value=0.0, value=80.0)
-        test_ch4 = st.number_input("CH₄ (ppm) test", min_value=0.0, value=120.0)
-        test_c2h2 = st.number_input("C₂H₂ (ppm) test", min_value=0.0, value=10.0)
+        test_h2 = st.number_input("H₂ (ppm)", min_value=0.0, value=80.0)
+        test_ch4 = st.number_input("CH₄ (ppm)", min_value=0.0, value=120.0)
+        test_c2h2 = st.number_input("C₂H₂ (ppm)", min_value=0.0, value=10.0)
     with col2:
-        test_c2h4 = st.number_input("C₂H₄ (ppm) test", min_value=0.0, value=45.0)
-        test_c2h6 = st.number_input("C₂H₆ (ppm) test", min_value=0.0, value=60.0)
-        test_co = st.number_input("CO (ppm) test", min_value=0.0, value=750.0)
+        test_c2h4 = st.number_input("C₂H₄ (ppm)", min_value=0.0, value=45.0)
+        test_c2h6 = st.number_input("C₂H₆ (ppm)", min_value=0.0, value=60.0)
+        test_co = st.number_input("CO (ppm)", min_value=0.0, value=750.0)
     with col3:
-        test_co2 = st.number_input("CO₂ (ppm) test", min_value=0.0, value=4200.0)
+        test_co2 = st.number_input("CO₂ (ppm)", min_value=0.0, value=4200.0)
 
     if st.button("Run AI Prediction"):
         sample = [[test_h2, test_ch4, test_c2h2, test_c2h4, test_c2h6, test_co, test_co2]]
@@ -251,4 +245,4 @@ else:
     st.info("No trained model found. Train one first.")
 
 st.markdown("---")
-st.caption("Developed by Code GPT 🧑‍💻 | DGA AI System v4.2 | Multi-Phase Averaging + Time-Series Visualization 🌐")
+st.caption("Developed by Code GPT 🧑‍💻 | DGA AI System v4.3 | Analytics Edition 🌐")
