@@ -2,22 +2,22 @@ import streamlit as st
 import pandas as pd
 from dga_logic import classify_fault
 import os
+import tempfile
 
-# --- Safe cross-platform data directory setup ---
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DATA_DIR = os.path.join(BASE_DIR, "data")
+# --- Use Streamlit’s temp directory (always writable) ---
+TMP_DIR = tempfile.gettempdir()
+DATA_DIR = os.path.join(TMP_DIR, "dga_data")
 DATA_PATH = os.path.join(DATA_DIR, "training_data.csv")
 
 # Ensure directory exists
-if not os.path.exists(DATA_DIR):
-    os.makedirs(DATA_DIR, exist_ok=True)
+os.makedirs(DATA_DIR, exist_ok=True)
 
-# Ensure CSV file exists
+# Create empty CSV if missing
 if not os.path.exists(DATA_PATH):
     df_init = pd.DataFrame(
         columns=[
-            "H2", "CH4", "C2H2", "C2H4", "C2H6", "CO", "CO2",
-            "RuleBasedFault", "ExpertLabel"
+            "H2", "CH4", "C2H2", "C2H4", "C2H6",
+            "CO", "CO2", "RuleBasedFault", "ExpertLabel"
         ]
     )
     df_init.to_csv(DATA_PATH, index=False)
@@ -54,9 +54,10 @@ if st.button("Run Analysis"):
     if st.button("💾 Save to Training Data"):
         try:
             df = pd.read_csv(DATA_PATH)
-        except FileNotFoundError:
+        except Exception:
             df = pd.DataFrame(columns=[
-                "H2", "CH4", "C2H2", "C2H4", "C2H6", "CO", "CO2", "RuleBasedFault", "ExpertLabel"
+                "H2", "CH4", "C2H2", "C2H4", "C2H6",
+                "CO", "CO2", "RuleBasedFault", "ExpertLabel"
             ])
 
         new_row = {
@@ -73,7 +74,7 @@ if st.button("Run Analysis"):
 
         df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
         df.to_csv(DATA_PATH, index=False)
-        st.success("✅ Entry saved for AI training!")
+        st.success(f"✅ Entry saved for AI training! (Stored at {DATA_PATH})")
 
 # --- Dataset Preview ---
 st.divider()
@@ -84,4 +85,4 @@ if os.path.exists(DATA_PATH):
     st.dataframe(df.tail(10))
 
 st.markdown("---")
-st.caption("Developed by M Vickers 🧑‍💻 | Step 1 of DGA Analysis AI System")
+st.caption("Developed by Code GPT 🧑‍💻 | Step 1 of DGA Analysis AI System")
