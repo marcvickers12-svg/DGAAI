@@ -6,16 +6,16 @@ import os
 import tempfile
 import joblib
 import re
+import plotly.express as px
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelEncoder
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import classification_report, accuracy_score, confusion_matrix
 
 # =====================================================
-# DGA AI TRAINING CAMP v4.1 — MULTI-PHASE AUTO DETECTION
+# DGA AI TRAINING CAMP v4.2 — Multi-Phase + Time Series
 # =====================================================
 
-# --- Safe directories ---
 TMP_DIR = tempfile.gettempdir()
 DATA_DIR = os.path.join(TMP_DIR, "dga_data")
 MODEL_DIR = os.path.join(TMP_DIR, "dga_models")
@@ -26,7 +26,7 @@ DATA_PATH = os.path.join(DATA_DIR, "training_data.csv")
 MODEL_PATH = os.path.join(MODEL_DIR, "dga_model.pkl")
 ENCODER_PATH = os.path.join(MODEL_DIR, "label_encoder.pkl")
 
-# --- Initialize dataset if missing ---
+# --- Initialize empty dataset if not found
 if not os.path.exists(DATA_PATH):
     df_init = pd.DataFrame(columns=[
         "Timestamp", "H2", "CH4", "C2H2", "C2H4", "C2H6", "CO", "CO2",
@@ -34,15 +34,15 @@ if not os.path.exists(DATA_PATH):
     ])
     df_init.to_csv(DATA_PATH, index=False)
 
-# --- Streamlit setup ---
-st.set_page_config(page_title="DGA AI Training Camp", layout="wide")
-st.title("🧠 DGA AI Training Camp v4.1 — Multi-Phase Auto Detection")
-st.caption("Upload, clean, train and predict transformer gas analysis with automatic column detection and phase averaging.")
+# --- Streamlit config
+st.set_page_config(page_title="DGA AI Training Camp v4.2", layout="wide")
+st.title("🧠 DGA AI Training Camp v4.2 — Multi-Phase + Time-Series Visualization")
+st.caption("Fully automated DGA analysis system with rule-based classification, AI training, and real-time charts.")
 
 # ======================================
-# SECTION 1: Data Entry & Fault Analysis
+# SECTION 1: Manual Data Entry
 # ======================================
-st.header("📥 Data Entry & Rule-Based Fault Classification")
+st.header("📥 Manual Data Entry & Rule-Based Classification")
 
 col1, col2, col3 = st.columns(3)
 with col1:
@@ -62,7 +62,6 @@ if st.button("Run Rule-Based Analysis"):
     st.caption(explanation)
 
     expert_label = st.text_input("Expert Label (optional)", placeholder="Enter confirmed fault if different")
-
     if st.button("💾 Save Entry"):
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         df = pd.read_csv(DATA_PATH)
@@ -76,18 +75,19 @@ if st.button("Run Rule-Based Analysis"):
         st.success(f"✅ Entry saved for AI training! ({timestamp})")
 
 # ======================================
-# SECTION 2: Multi-Phase Upload + Averaging
+# SECTION 2: Upload + Cleaning + Visualization
 # ======================================
-st.header("📤 Upload External DGA Dataset (Auto-Detect + Multi-Phase Averaging)")
+st.header("📤 Upload External DGA Dataset (Multi-Phase + Visualization)")
 
 st.markdown("""
-Upload raw `.csv` data — even with **Red / Yellow / Blue** phases.  
+Upload any raw `.csv` file — even with **Red/Yellow/Blue phases** or timestamps.  
 The app will:
-1. Detect all column variants  
-2. Average across phases (Red/Yellow/Blue)  
-3. Auto-classify faults  
-4. Generate a quick data quality report  
-5. Merge it into your main training data
+- Detect and rename gas columns  
+- Average multi-phase duplicates  
+- Ignore non-numeric (e.g., date) columns  
+- Classify faults automatically  
+- Generate data-quality stats  
+- Plot time-series visualizations  
 """)
 
 def normalize_column_names(columns):
@@ -107,28 +107,36 @@ def normalize_column_names(columns):
     return normalized
 
 def average_duplicate_columns(df):
-    """Averages duplicate phase columns (e.g., Red/Yellow/Blue H2 → one H2)."""
+    """Average duplicate phase columns while skipping non-numeric ones."""
     averaged = pd.DataFrame()
     for col in df.columns.unique():
         cols = [c for c in df.columns if c == col]
-        averaged[col] = df[cols].mean(axis=1)
+        try:
+            numeric = df[cols].apply(pd.to_numeric, errors="coerce")
+            averaged[col] = numeric.mean(axis=1)
+        except Exception:
+            averaged[col] = df[cols[0]]
     return averaged
 
-uploaded_file = st.file_uploader("📂 Choose a CSV file", type=["csv"])
+uploaded_file = st.file_uploader("📂 Choose CSV file", type=["csv"])
 
 if uploaded_file is not None:
     try:
         df_upload = pd.read_csv(uploaded_file)
         df_upload.columns = normalize_column_names(df_upload.columns)
-
-        # Average multi-phase columns (e.g., multiple H2s)
         df_upload = average_duplicate_columns(df_upload)
 
-        st.success(f"✅ File uploaded! {df_upload.shape[0]} rows detected.")
+        st.success(f"✅ File uploaded successfully! {df_upload.shape[0]} rows detected.")
         st.dataframe(df_upload.head())
 
+        # Detect timestamp or date columns
+        date_cols = [col for col in df_upload.columns if re.search(r'date|time', col.lower())]
+        if date_cols:
+            df_upload[date_cols[0]] = pd.to_datetime(df_upload[date_cols[0]], errors="coerce")
+            df_upload = df_upload.rename(columns={date_cols[0]: "Timestamp"})
+
         gases = ["H2", "CH4", "C2H2", "C2H4", "C2H6", "CO", "CO2"]
-        df_upload = df_upload[[col for col in df_upload.columns if col in gases]].dropna()
+        df_upload = df_upload[[col for col in df_upload.columns if col in gases or col == "Timestamp"]].dropna(subset=gases)
 
         st.write("🔍 Applying rule-based fault classification...")
         df_upload["ExpertLabel"] = df_upload.apply(
@@ -139,7 +147,7 @@ if uploaded_file is not None:
             )[0], axis=1
         )
 
-        # Data quality summary
+        # --- Data summary ---
         st.markdown("### 📊 Data Quality Summary")
         st.write("Rows:", df_upload.shape[0])
         st.write("Missing values per column:")
@@ -147,9 +155,21 @@ if uploaded_file is not None:
         st.write("Summary statistics:")
         st.write(df_upload.describe())
 
+        # --- Visualization section ---
+        if "Timestamp" in df_upload.columns:
+            st.markdown("### 📈 Time-Series Gas Trends")
+            gas_choice = st.multiselect("Select gases to visualize", gases, default=["H2", "CH4"])
+            for gas in gas_choice:
+                fig = px.line(df_upload, x="Timestamp", y=gas, title=f"{gas} Concentration Over Time", markers=True)
+                st.plotly_chart(fig, use_container_width=True)
+
+            st.markdown("### 🔥 Fault Type Distribution")
+            fig_faults = px.histogram(df_upload, x="ExpertLabel", title="Fault Occurrence Frequency")
+            st.plotly_chart(fig_faults, use_container_width=True)
+
+        # --- Merge to main dataset ---
         if st.button("🔄 Merge with Training Data"):
             df_existing = pd.read_csv(DATA_PATH)
-            df_upload["Timestamp"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             df_upload["RuleBasedFault"] = df_upload["ExpertLabel"]
             df_combined = pd.concat([df_existing, df_upload], ignore_index=True)
             df_combined.to_csv(DATA_PATH, index=False)
@@ -178,7 +198,7 @@ if st.button("Train Model"):
         y_pred = model.predict(X_test)
 
         acc = accuracy_score(y_test, y_pred)
-        st.success(f"✅ Model trained successfully! Accuracy: {acc*100:.2f}%")
+        st.success(f"✅ Model trained! Accuracy: {acc*100:.2f}%")
         st.text("Classification Report:")
         st.code(classification_report(y_test, y_pred))
         st.text("Confusion Matrix:")
@@ -189,7 +209,7 @@ if st.button("Train Model"):
         st.info("💾 Model saved successfully!")
 
 # ======================================
-# SECTION 4: Test AI Model
+# SECTION 4: AI Prediction
 # ======================================
 st.header("🔮 Test AI Model")
 
@@ -218,4 +238,4 @@ else:
     st.info("No trained model found. Train one first.")
 
 st.markdown("---")
-st.caption("Developed by Code GPT 🧑‍💻 | DGA Analysis AI System v4.1 | Multi-Phase Auto Detection & Averaging 🌐")
+st.caption("Developed by Code GPT 🧑‍💻 | DGA AI System v4.2 | Multi-Phase Averaging + Time-Series Visualization 🌐")
