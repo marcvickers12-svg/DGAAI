@@ -11,7 +11,11 @@ from sklearn.preprocessing import LabelEncoder
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import classification_report, accuracy_score, confusion_matrix
 
-# --- Safe storage setup (works locally & on Streamlit Cloud) ---
+# =====================================================
+# DGA AI TRAINING CAMP v4.1 — MULTI-PHASE AUTO DETECTION
+# =====================================================
+
+# --- Safe directories ---
 TMP_DIR = tempfile.gettempdir()
 DATA_DIR = os.path.join(TMP_DIR, "dga_data")
 MODEL_DIR = os.path.join(TMP_DIR, "dga_models")
@@ -22,7 +26,7 @@ DATA_PATH = os.path.join(DATA_DIR, "training_data.csv")
 MODEL_PATH = os.path.join(MODEL_DIR, "dga_model.pkl")
 ENCODER_PATH = os.path.join(MODEL_DIR, "label_encoder.pkl")
 
-# --- Initialize dataset if not existing ---
+# --- Initialize dataset if missing ---
 if not os.path.exists(DATA_PATH):
     df_init = pd.DataFrame(columns=[
         "Timestamp", "H2", "CH4", "C2H2", "C2H4", "C2H6", "CO", "CO2",
@@ -32,11 +36,11 @@ if not os.path.exists(DATA_PATH):
 
 # --- Streamlit setup ---
 st.set_page_config(page_title="DGA AI Training Camp", layout="wide")
-st.title("🧠 DGA AI Training Camp v4.0")
-st.caption("Fully automated transformer gas analysis and AI training environment.")
+st.title("🧠 DGA AI Training Camp v4.1 — Multi-Phase Auto Detection")
+st.caption("Upload, clean, train and predict transformer gas analysis with automatic column detection and phase averaging.")
 
 # ======================================
-# SECTION 1: Data Entry & Rule-Based Fault Classification
+# SECTION 1: Data Entry & Fault Analysis
 # ======================================
 st.header("📥 Data Entry & Rule-Based Fault Classification")
 
@@ -72,23 +76,26 @@ if st.button("Run Rule-Based Analysis"):
         st.success(f"✅ Entry saved for AI training! ({timestamp})")
 
 # ======================================
-# SECTION 2: Smart External Dataset Upload (Auto-Detect Columns)
+# SECTION 2: Multi-Phase Upload + Averaging
 # ======================================
-st.header("📤 Upload External DGA Dataset (Auto Detection + Quality Report)")
+st.header("📤 Upload External DGA Dataset (Auto-Detect + Multi-Phase Averaging)")
 
 st.markdown("""
-Upload any `.csv` DGA dataset — UK Power Station, IEC, lab data — 
-and the system will automatically:
-1. Detect and rename columns (Hydrogen → H2, etc.)
-2. Apply fault classification rules
-3. Show a quick data quality summary
-4. Merge it into your main dataset
+Upload raw `.csv` data — even with **Red / Yellow / Blue** phases.  
+The app will:
+1. Detect all column variants  
+2. Average across phases (Red/Yellow/Blue)  
+3. Auto-classify faults  
+4. Generate a quick data quality report  
+5. Merge it into your main training data
 """)
 
 def normalize_column_names(columns):
     normalized = []
     for c in columns:
         c_lower = c.lower().strip()
+        c_lower = re.sub(r'^(red|yellow|blue)[:\\s-]+', '', c_lower)
+        c_lower = c_lower.replace('(ppm)', '').strip()
         if re.search(r'h.?ydrogen', c_lower): normalized.append('H2')
         elif re.search(r'meth.?ane', c_lower): normalized.append('CH4')
         elif re.search(r'acetyl', c_lower): normalized.append('C2H2')
@@ -99,20 +106,30 @@ def normalize_column_names(columns):
         else: normalized.append(c.strip())
     return normalized
 
+def average_duplicate_columns(df):
+    """Averages duplicate phase columns (e.g., Red/Yellow/Blue H2 → one H2)."""
+    averaged = pd.DataFrame()
+    for col in df.columns.unique():
+        cols = [c for c in df.columns if c == col]
+        averaged[col] = df[cols].mean(axis=1)
+    return averaged
+
 uploaded_file = st.file_uploader("📂 Choose a CSV file", type=["csv"])
 
 if uploaded_file is not None:
     try:
         df_upload = pd.read_csv(uploaded_file)
         df_upload.columns = normalize_column_names(df_upload.columns)
-        st.success(f"✅ File uploaded successfully! {df_upload.shape[0]} rows detected.")
+
+        # Average multi-phase columns (e.g., multiple H2s)
+        df_upload = average_duplicate_columns(df_upload)
+
+        st.success(f"✅ File uploaded! {df_upload.shape[0]} rows detected.")
         st.dataframe(df_upload.head())
 
-        # Filter columns
         gases = ["H2", "CH4", "C2H2", "C2H4", "C2H6", "CO", "CO2"]
         df_upload = df_upload[[col for col in df_upload.columns if col in gases]].dropna()
 
-        # Rule-based fault assignment
         st.write("🔍 Applying rule-based fault classification...")
         df_upload["ExpertLabel"] = df_upload.apply(
             lambda row: classify_fault(
@@ -122,7 +139,7 @@ if uploaded_file is not None:
             )[0], axis=1
         )
 
-        # Generate quick data quality summary
+        # Data quality summary
         st.markdown("### 📊 Data Quality Summary")
         st.write("Rows:", df_upload.shape[0])
         st.write("Missing values per column:")
@@ -130,20 +147,18 @@ if uploaded_file is not None:
         st.write("Summary statistics:")
         st.write(df_upload.describe())
 
-        # Merge and save
         if st.button("🔄 Merge with Training Data"):
             df_existing = pd.read_csv(DATA_PATH)
             df_upload["Timestamp"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             df_upload["RuleBasedFault"] = df_upload["ExpertLabel"]
             df_combined = pd.concat([df_existing, df_upload], ignore_index=True)
             df_combined.to_csv(DATA_PATH, index=False)
-            st.success(f"✅ Dataset merged! Total entries: {df_combined.shape[0]}")
-
+            st.success(f"✅ Dataset merged successfully! Total entries: {df_combined.shape[0]}")
     except Exception as e:
         st.error(f"❌ Error processing file: {e}")
 
 # ======================================
-# SECTION 3: Train AI Model
+# SECTION 3: AI Model Training
 # ======================================
 st.header("🤖 Train AI Model")
 
@@ -203,4 +218,4 @@ else:
     st.info("No trained model found. Train one first.")
 
 st.markdown("---")
-st.caption("Developed by Code GPT 🧑‍💻 | DGA Analysis AI System v4.0 | Auto-Detection & Quality Report Enabled 🌐")
+st.caption("Developed by Code GPT 🧑‍💻 | DGA Analysis AI System v4.1 | Multi-Phase Auto Detection & Averaging 🌐")
